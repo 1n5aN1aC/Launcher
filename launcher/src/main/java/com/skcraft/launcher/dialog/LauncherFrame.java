@@ -183,7 +183,7 @@ public class LauncherFrame extends JFrame {
      * @return the news panel
      */
     protected WebpagePanel createNewsPanel() {
-        return WebpagePanel.forURL(launcher.getNewsURL(),launcher.getConfig().getAdminToken(), false);
+        return WebpagePanel.forURL(launcher.getNewsURL(), false);
     }
 
     /**

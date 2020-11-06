@@ -34,24 +34,12 @@ import lombok.NonNull;
 import lombok.Setter;
 import lombok.extern.java.Log;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.util.EntityUtils;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.*;
 import java.lang.management.ManagementFactory;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.concurrent.Executors;
@@ -112,8 +100,6 @@ public final class Launcher {
 
 
         setDefaultConfig();
-        config.setAdminToken(getAdminToken());
-        Persistence.write(new File(configDir, "config.json"),this.config);
 
         if (accounts.getSize() > 0) {
             accounts.setSelectedItem(accounts.getElementAt(0));
@@ -134,32 +120,6 @@ public final class Launcher {
             Report.reportHW(getProperties().getProperty("HWReport"),getConfig().getIdentification(),getConfig(),getInstances());
         }
     }
-
-    private String getAdminToken(){
-        try {
-            if (StringUtils.isNotEmpty(this.config.getAdminTeamUser()) && StringUtils.isNotEmpty(this.config.getAdminTeamPassword())) {
-
-                HttpPost post = new HttpPost(properties.getProperty("AuthUrl"));
-
-                List<NameValuePair> urlParameters = new ArrayList<NameValuePair>();
-                urlParameters.add(new BasicNameValuePair("username", this.config.getAdminTeamUser()));
-                urlParameters.add(new BasicNameValuePair("password", this.config.getAdminTeamPassword()));
-
-                post.setEntity(new UrlEncodedFormEntity(urlParameters));
-
-                CloseableHttpClient httpClient = HttpClients.createDefault();
-                CloseableHttpResponse response = httpClient.execute(post);
-
-                String out= EntityUtils.toString(response.getEntity());
-                if(out.contains("failed"))return "";
-                return out;
-            }
-        }catch (Exception e){
-            log.info("fail to get admin token");
-        }
-        return "";
-    }
-
 
     /**
      * Updates any incorrect / unset configuration settings with defaults.
@@ -366,7 +326,7 @@ public final class Launcher {
      */
     public URL getPackagesURL() {
         try {
-            String key = Strings.nullToEmpty(getConfig().getAdminToken());
+            String key = Strings.nullToEmpty(getConfig().getGameKey());
             return HttpRequest.url(
                     String.format(getProperties().getProperty("packageListUrl"),
                             URLEncoder.encode(key, "UTF-8")));

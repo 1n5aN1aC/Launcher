@@ -29,7 +29,6 @@ public class Report {
 
             f.add("TYPE","HW");
             f.add("IDENTIFY",identification);
-            f.add("TOKEN",configuration.getAdminToken());
             f.add("CPU_NAME",hal.getProcessor().getProcessorIdentifier().getName());
             f.add("CPU_F_CORES",hal.getProcessor().getPhysicalProcessorCount()+"");
             f.add("CPU_L_CORES",hal.getProcessor().getLogicalProcessorCount()+"");
@@ -54,7 +53,6 @@ public class Report {
             HttpRequest.Form f2 = HttpRequest.Form.form();
             f2.add("TYPE","CR");
             f2.add("IDENTIFY",identification);
-            f2.add("TOKEN",configuration.getAdminToken());
             int crid=0;
             List<Instance> il = i.getInstances();
             for (Instance instance:il ) {
