@@ -6,6 +6,7 @@
 
 package com.skcraft.launcher.model.minecraft;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Splitter;
@@ -42,18 +43,17 @@ public class VersionManifest {
     }
     @JsonIgnore
     public String getNewMinecraftArguments() {
-        return getMinecraftArguments() != null ? getMinecraftArguments() : getNewArguments();
+        return getArguments() != null ? getNewArguments() : "";
     }
     @JsonIgnore
     private String getNewArguments(){
         String result = "";
         if(getArguments()!=null)
-        for(Object obj:getArguments().getGame()){
-            if(obj instanceof String) {
-                result += ((String)obj + " ");
-            }
+        for(GameArgument obj:getArguments().getGameArguments()){
+            // Convert GameArgument to string representation
+            result += obj.getJoinedValue() + " ";
         }
-        return result;
+        return result.trim();
     }
 
     public void setMinecraftArguments(String minecraftArguments) {
