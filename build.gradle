@@ -1,17 +1,6 @@
-buildscript {
-    repositories {
-        mavenCentral()
-        jcenter()
-    }
-
-    dependencies {
-    	classpath "com.github.jengelman.gradle.plugins:shadow:2.0.1"
-    }
-}
-
 plugins {
-    id "com.github.johnrengelman.shadow" version "2.0.1"
-    id 'io.franzbecker.gradle-lombok' version '1.11'
+    id "com.github.johnrengelman.shadow" version "7.1.2"
+    id 'io.freefair.lombok' version '5.3.0'
 }
 
 println """
@@ -24,17 +13,18 @@ println """
 
 subprojects {
     apply plugin: 'java'
-    apply plugin: 'maven'
 
     group = 'com.skcraft'
     version = '5.1.2'
 
-    sourceCompatibility = 1.6
-    targetCompatibility = 1.6
+    java {
+        toolchain {
+            languageVersion.set(JavaLanguageVersion.of(8))
+        }
+    }
 
     repositories {
         mavenCentral()
-        maven { url "http://repo.maven.apache.org/maven2" }
     }
 
     if (JavaVersion.current().isJava8Compatible()) {
@@ -42,5 +32,44 @@ subprojects {
         tasks.withType(Javadoc) {
             options.addStringOption('Xdoclint:none', '-quiet')
         }
+    }
+
+    tasks.withType(JavaExec) {
+        workingDir = new File(rootDir, "run/")
+        workingDir.mkdirs()
+    }
+
+    // Work around gradle shadow bug
+    // see https://github.com/johnrengelman/shadow/issues/713
+    afterEvaluate {
+        startScripts {
+            dependsOn(shadowJar)
+        }
+
+        distTar {
+            dependsOn(shadowJar)
+        }
+
+        distZip {
+            dependsOn(shadowJar)
+        }
+
+        startShadowScripts {
+            dependsOn(jar)
+        }
+
+        shadowDistTar {
+            dependsOn(jar)
+        }
+
+        shadowDistZip {
+            dependsOn(jar)
+        }
+    }
+}
+
+task clean {
+    subprojects {
+        rootProject.clean.dependsOn tasks.matching { it.name == "clean" }
     }
 }

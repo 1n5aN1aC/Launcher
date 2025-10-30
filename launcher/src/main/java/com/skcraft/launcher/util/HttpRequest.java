@@ -9,6 +9,7 @@ package com.skcraft.launcher.util;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.skcraft.concurrency.ProgressObservable;
+import lombok.Data;
 import lombok.Getter;
 import lombok.extern.java.Log;
 
@@ -16,7 +17,10 @@ import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Unmarshaller;
 import java.io.*;
-import java.net.*;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.*;
 
 import static com.skcraft.launcher.LauncherUtils.checkInterrupted;
@@ -34,14 +38,16 @@ public class HttpRequest implements Closeable, ProgressObservable {
 
     private final ObjectMapper mapper = new ObjectMapper();
     private final Map<String, String> headers = new HashMap<String, String>();
-    private final String method;
+    private String method;
     @Getter
     private final URL url;
     private String contentType;
     private byte[] body;
     private HttpURLConnection conn;
     private InputStream inputStream;
+    private int redirectCount;
 
+    private PartialDownloadInfo resumeInfo = null;
     private long contentLength = -1;
     private long readBytes = 0;
     private int maxRedirectFollow = 30;
@@ -110,58 +116,9 @@ public class HttpRequest implements Closeable, ProgressObservable {
                 throw new IllegalArgumentException("Connection already executed");
             }
 
-            String location = null;
-            URL connectUrl = url;
+            conn = this.runRequest(url);
 
-            for(int redirect = 0; redirect <= maxRedirectFollow; redirect++) {
-                conn        = (HttpURLConnection) reformat(connectUrl).openConnection();
-
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(15000);
-                conn.setInstanceFollowRedirects(false);
-                conn.setRequestProperty("User-Agent", "SKCraft Launcher");
-
-                if (location == null && body != null) {
-                    conn.setRequestProperty("Content-Type", contentType);
-                    conn.setRequestProperty("Content-Length", Integer.toString(body.length));
-                    conn.setDoInput(true);
-                }
-
-                for (Map.Entry<String, String> entry : headers.entrySet()) {
-                    conn.setRequestProperty(entry.getKey(), entry.getValue());
-                }
-
-                if (location == null) {
-                    conn.setRequestMethod(method);
-                }
-                conn.setUseCaches(false);
-                conn.setDoOutput(true);
-                conn.setReadTimeout(READ_TIMEOUT);
-
-                conn.connect();
-
-                if (location == null && body != null) {
-                    DataOutputStream out = new DataOutputStream(conn.getOutputStream());
-                    out.write(body);
-                    out.flush();
-                    out.close();
-                }
-
-                switch (conn.getResponseCode())
-                {
-                    case HttpURLConnection.HTTP_MOVED_PERM:
-                    case HttpURLConnection.HTTP_MOVED_TEMP:
-                        location   = conn.getHeaderField("Location");
-                        location   = URLDecoder.decode(location, "UTF-8");
-                        connectUrl = new URL(connectUrl, location);
-                        continue;
-                }
-
-                break;
-            }
-
-            inputStream = conn.getResponseCode() == HttpURLConnection.HTTP_OK ?
-                    conn.getInputStream() : conn.getErrorStream();
+            inputStream = isSuccessCode() ? conn.getInputStream() : conn.getErrorStream();
 
             successful = true;
         } finally {
@@ -171,6 +128,63 @@ public class HttpRequest implements Closeable, ProgressObservable {
         }
 
         return this;
+    }
+
+    private HttpURLConnection runRequest(URL url) throws IOException {
+        if (redirectCount > 20) {
+            throw new IOException("Too many redirects!");
+        }
+
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Java) SKMCLauncher");
+        conn.setInstanceFollowRedirects(false);
+
+        if (body != null) {
+            conn.setRequestProperty("Content-Type", contentType);
+            conn.setRequestProperty("Content-Length", Integer.toString(body.length));
+            conn.setDoInput(true);
+        }
+
+        if (resumeInfo != null) {
+            conn.setRequestProperty("Range", String.format("bytes=%d-", resumeInfo.currentLength));
+        }
+
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            conn.setRequestProperty(entry.getKey(), entry.getValue());
+        }
+
+        conn.setRequestMethod(method);
+        conn.setUseCaches(false);
+        conn.setDoOutput(true);
+        conn.setReadTimeout(READ_TIMEOUT);
+
+        conn.connect();
+
+        if (body != null) {
+            DataOutputStream out = new DataOutputStream(conn.getOutputStream());
+            out.write(body);
+            out.flush();
+            out.close();
+        }
+
+        switch (conn.getResponseCode()) {
+            case HttpURLConnection.HTTP_SEE_OTHER:
+                method = "GET";
+                body = null;
+            case HttpURLConnection.HTTP_MOVED_PERM:
+            case HttpURLConnection.HTTP_MOVED_TEMP:
+            case HttpURLConnection.HTTP_ACCEPTED:
+            case 307:
+            case 308:
+                String location = conn.getHeaderField("Location");
+                redirectCount++;
+
+                return runRequest(new URL(this.url, location));
+            default:
+                break;
+        }
+
+        return conn;
     }
 
     /**
@@ -189,8 +203,56 @@ public class HttpRequest implements Closeable, ProgressObservable {
             }
         }
 
+        if (resumeInfo != null && responseCode == 206) {
+            // Allow 206 Partial Content for resumed requests
+            return this;
+        }
+
         close();
         throw new IOException("Did not get expected response code, got " + responseCode + " for " + url);
+    }
+
+    /**
+     * Continue if the response code matches, otherwise call the provided function
+     * to generate an exception.
+     *
+     * @param code HTTP status code to continue on.
+     * @param onError Function invoked when the code does not match, should return an error that will be thrown.
+     * @return this object if successful
+     * @throws Exception either an {@link IOException} on I/O error or a user-defined {@link Exception} subclass
+     *         if the code does not match.
+     */
+    public <E extends Exception> HttpRequest expectResponseCodeOr(int code, HttpFunction<HttpRequest, E> onError)
+            throws E, IOException, InterruptedException {
+        int responseCode = getResponseCode();
+
+        if (code == responseCode) return this;
+
+        E exc = onError.call(this);
+        close();
+        throw exc;
+    }
+
+    /**
+     * Continue if the content type matches, otherwise throw an exception
+     *
+     * @param expectedTypes Expected content-type(s)
+     * @return this object
+     * @throws IOException Unexpected content-type or other error
+     */
+    public HttpRequest expectContentType(String... expectedTypes) throws IOException {
+        if (conn == null) throw new IllegalArgumentException("No connection has been made!");
+
+        String contentType = conn.getHeaderField("Content-Type");
+        for (String expectedType : expectedTypes) {
+            if (expectedType.equals(contentType)) {
+                return this;
+            }
+        }
+
+        close();
+        throw new IOException(String.format("Did not get expected content type '%s', instead got '%s'.",
+                String.join(" | ", expectedTypes), contentType));
     }
 
     /**
@@ -208,12 +270,31 @@ public class HttpRequest implements Closeable, ProgressObservable {
     }
 
     /**
+     * Check if the response code indicates a successful request.
+     * @return True if response code is 2xx, false otherwise.
+     * @throws IOException on I/O error getting the response code.
+     */
+    public boolean isSuccessCode() throws IOException {
+        int code = getResponseCode();
+        return code >= 200 && code < 300;
+    }
+
+    /**
      * Get the input stream.
      *
      * @return the input stream
      */
     public InputStream getInputStream() {
         return inputStream;
+    }
+
+    /**
+     * Check if a connection was ever made
+     *
+     * @return True if a connection is available, false otherwise
+     */
+    public boolean isConnected() {
+        return conn != null;
     }
 
     /**
@@ -252,9 +333,10 @@ public class HttpRequest implements Closeable, ProgressObservable {
     public HttpRequest saveContent(File file) throws IOException, InterruptedException {
         FileOutputStream fos = null;
         BufferedOutputStream bos = null;
+        boolean shouldAppend = resumeInfo != null && getResponseCode() == 206;
 
         try {
-            fos = new FileOutputStream(file);
+            fos = new FileOutputStream(file, shouldAppend);
             bos = new BufferedOutputStream(fos);
 
             saveContent(bos);
@@ -298,11 +380,38 @@ public class HttpRequest implements Closeable, ProgressObservable {
                 readBytes += len;
                 checkInterrupted();
             }
+
+            if (contentLength >= 0 && contentLength != readBytes) {
+                throw new IOException(String.format("Connection closed with %d bytes transferred, expected %d",
+                        readBytes, contentLength));
+            }
         } finally {
             close();
         }
 
         return this;
+    }
+
+    public Optional<PartialDownloadInfo> canRetryPartial() {
+        if (conn == null) {
+            return Optional.empty();
+        }
+
+        if ("bytes".equals(conn.getHeaderField("Accept-Ranges"))) {
+            return Optional.of(new PartialDownloadInfo(contentLength, readBytes));
+        }
+
+        return Optional.empty();
+    }
+
+    public HttpRequest setResumeInfo(PartialDownloadInfo info) {
+        this.resumeInfo = info;
+
+        return this;
+    }
+
+    public boolean isResumedRequest() {
+        return resumeInfo != null;
     }
 
     @Override
@@ -368,27 +477,6 @@ public class HttpRequest implements Closeable, ProgressObservable {
             return new URL(url);
         } catch (MalformedURLException e) {
             throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * URL may contain spaces and other nasties that will cause a failure.
-     *
-     * @param existing the existing URL to transform
-     * @return the new URL, or old one if there was a failure
-     */
-    private static URL reformat(URL existing) {
-        try {
-            URL url = new URL(existing.toString());
-            URI uri = new URI(
-                    url.getProtocol(), url.getUserInfo(), url.getHost(), url.getPort(),
-                    url.getPath(), url.getQuery(), url.getRef());
-            url = uri.toURL();
-            return url;
-        } catch (MalformedURLException e) {
-            return existing;
-        } catch (URISyntaxException e) {
-            return existing;
         }
     }
 
@@ -493,7 +581,7 @@ public class HttpRequest implements Closeable, ProgressObservable {
          * @return the object
          * @throws java.io.IOException on I/O error
          */
-        public <T> T asJson(TypeReference type) throws IOException {
+        public <T> T asJson(TypeReference<T> type) throws IOException {
             return mapper.readValue(asString("UTF-8"), type);
         }
 
@@ -555,6 +643,12 @@ public class HttpRequest implements Closeable, ProgressObservable {
 
             return this;
         }
+    }
+
+    @Data
+    public static class PartialDownloadInfo {
+        private final long expectedLength;
+        private final long currentLength;
     }
 
 }

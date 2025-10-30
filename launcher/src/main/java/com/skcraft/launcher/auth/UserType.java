@@ -10,24 +10,31 @@ package com.skcraft.launcher.auth;
  * Represents the type of user for the account.
  */
 public enum UserType {
-
     /**
      * Legacy accounts login with an account username.
      */
-    LEGACY,
+    LEGACY("legacy"),
     /**
      * Mojang accounts login with an email address.
      */
-    MOJANG;
-
+    MOJANG("mojang"),
     /**
-     * Return a lowercase version of the enum type.
-     *
-     * @return the lowercase name
+     * Microsoft accounts login via OAuth.
      */
-    public String getName() {
-        return name().toLowerCase();
+    MICROSOFT("msa");
+
+    private final String id;
+
+    UserType(String id) {
+        this.id = id;
     }
 
-
+    /**
+     * Return the account type string as the game understands it
+     *
+     * @return the account type ID for passing to the game
+     */
+    public String getId() {
+        return this.id;
+    }
 }

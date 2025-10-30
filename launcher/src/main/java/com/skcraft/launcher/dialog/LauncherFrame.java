@@ -132,7 +132,7 @@ public class LauncherFrame extends JFrame {
             @Override
             public void actionPerformed(ActionEvent e) {
                 loadInstances();
-                launcher.getUpdateManager().checkForUpdate();
+                launcher.getUpdateManager().checkForUpdate(LauncherFrame.this);
                 webView.browse(launcher.getNewsURL(), false);
             }
         });
@@ -238,6 +238,12 @@ public class LauncherFrame extends JFrame {
                         dir.mkdirs();
                         SwingHelper.setClipboard(dir.getAbsolutePath());
                     }
+                });
+                popup.add(menuItem);
+
+                menuItem = new JMenuItem(SharedLocale.tr("instance.openSettings"));
+                menuItem.addActionListener(e -> {
+                    InstanceSettingsDialog.open(this, selected);
                 });
                 popup.add(menuItem);
 
@@ -388,7 +394,8 @@ public class LauncherFrame extends JFrame {
 
         @Override
         public void gameClosed() {
-            launcher.showLauncherWindow();
+            Window newLauncherWindow = launcher.showLauncherWindow();
+            launcher.getUpdateManager().checkForUpdate(newLauncherWindow);
         }
     }
 

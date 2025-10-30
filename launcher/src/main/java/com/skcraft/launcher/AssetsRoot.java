@@ -6,7 +6,6 @@
 
 package com.skcraft.launcher;
 
-import com.google.common.io.Files;
 import com.skcraft.concurrency.ProgressObservable;
 import com.skcraft.launcher.model.minecraft.Asset;
 import com.skcraft.launcher.model.minecraft.AssetsIndex;
@@ -18,6 +17,7 @@ import lombok.extern.java.Log;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Map;
 import java.util.logging.Level;
 
@@ -50,7 +50,7 @@ public class AssetsRoot {
      * @return the file, which may not exist
      */
     public File getIndexPath(VersionManifest versionManifest) {
-        return new File(dir, "indexes/" + versionManifest.getAssetsIndex() + ".json");
+        return new File(dir, "indexes/" + versionManifest.getAssetId() + ".json");
     }
 
     /**
@@ -75,7 +75,7 @@ public class AssetsRoot {
      * @throws LauncherException
      */
     public AssetsTreeBuilder createAssetsBuilder(@NonNull VersionManifest versionManifest) throws LauncherException {
-        String indexId = versionManifest.getAssetsIndex();
+        String indexId = versionManifest.getAssetId();
         File path = getIndexPath(versionManifest);
         AssetsIndex index = Persistence.read(path, AssetsIndex.class, true);
         if (index == null || index.getObjects() == null) {
@@ -101,6 +101,7 @@ public class AssetsRoot {
         public File build() throws IOException, LauncherException {
             AssetsRoot.log.info("Building asset virtual tree at '" + destDir.getAbsolutePath() + "'...");
 
+            boolean supportsLinks = true;
             for (Map.Entry<String, Asset> entry : index.getObjects().entrySet()) {
                 File objectPath = getObjectPath(entry.getValue());
                 File virtualPath = new File(destDir, entry.getKey());
@@ -114,7 +115,17 @@ public class AssetsRoot {
                         throw new LauncherException("Missing object " + objectPath.getAbsolutePath(), message);
                     }
 
-                    Files.copy(objectPath, virtualPath);
+                    if (supportsLinks) {
+                        try {
+                            Files.createLink(virtualPath.toPath(), objectPath.toPath());
+                        } catch (UnsupportedOperationException e) {
+                            supportsLinks = false;
+                        }
+                    }
+
+                    if (!supportsLinks) {
+                        Files.copy(objectPath.toPath(), virtualPath.toPath());
+                    }
                 }
                 processed++;
             }

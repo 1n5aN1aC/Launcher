@@ -12,10 +12,9 @@ import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.skcraft.launcher.auth.AccountList;
-import com.skcraft.launcher.auth.LoginService;
-import com.skcraft.launcher.auth.YggdrasilLoginService;
+import com.skcraft.launcher.auth.*;
 import com.skcraft.launcher.launch.LaunchSupervisor;
+import com.skcraft.launcher.model.minecraft.Library;
 import com.skcraft.launcher.model.minecraft.VersionManifest;
 import com.skcraft.launcher.model.modpack.LauncherJSON;
 import com.skcraft.launcher.model.modpack.ModJSON;
@@ -23,6 +22,7 @@ import com.skcraft.launcher.model.modpack.ModpackVersion;
 import com.skcraft.launcher.persistence.Persistence;
 import com.skcraft.launcher.swing.SwingHelper;
 import com.skcraft.launcher.update.UpdateManager;
+import com.skcraft.launcher.util.Environment;
 import com.skcraft.launcher.util.HttpRequest;
 import com.skcraft.launcher.util.SharedLocale;
 import com.skcraft.launcher.util.SimpleLogFormatter;
@@ -55,7 +55,7 @@ import static com.skcraft.launcher.util.SharedLocale.tr;
 @Log
 public final class Launcher {
 
-    public static final int PROTOCOL_VERSION = 2;
+    public static final int PROTOCOL_VERSION = 3;
 
     @Getter
     private final ListeningExecutorService executor = MoreExecutors.listeningDecorator(Executors.newCachedThreadPool());
@@ -69,6 +69,7 @@ public final class Launcher {
     @Getter private final LaunchSupervisor launchSupervisor = new LaunchSupervisor(this);
     @Getter private final UpdateManager updateManager = new UpdateManager(this);
     @Getter private final InstanceTasks instanceTasks = new InstanceTasks(this);
+    private final Environment env = Environment.getInstance();
 
     /**
      * Create a new launcher instance with the given base directory.
@@ -91,7 +92,7 @@ public final class Launcher {
     public Launcher(@NonNull File baseDir, @NonNull File configDir) throws IOException {
         SharedLocale.loadBundle("com.skcraft.launcher.lang.Launcher", Locale.getDefault());
 
-        this.baseDir = baseDir;
+        this.baseDir = baseDir.getAbsoluteFile();
         this.properties = LauncherUtils.loadProperties(Launcher.class, "launcher.properties", "com.skcraft.launcher.propertiesFile");
         this.instances = new InstanceList(this);
         this.assets = new AssetsRoot(new File(baseDir, "assets"));
@@ -100,10 +101,6 @@ public final class Launcher {
 
         setDefaultConfig();
 
-        if (accounts.getSize() > 0) {
-            accounts.setSelectedItem(accounts.getElementAt(0));
-        }
-
         executor.submit(new Runnable() {
             @Override
             public void run() {
@@ -111,7 +108,7 @@ public final class Launcher {
             }
         });
 
-        updateManager.checkForUpdate();
+        updateManager.checkForUpdate(null);
     }
 
     /**
@@ -139,6 +136,15 @@ public final class Launcher {
     }
 
     /**
+     * Get the launcher title.
+     *
+     * @return The launcher title.
+     */
+    public String getTitle() {
+        return tr("launcher.appTitle");
+    }
+
+    /**
      * Get the launcher version.
      *
      * @return the launcher version
@@ -152,12 +158,29 @@ public final class Launcher {
     }
 
     /**
-     * Get a login service.
+     * Get the Yggdrasil login service.
      *
-     * @return a login service
+     * @return the Yggdrasil (legacy) login service
      */
-    public LoginService getLoginService() {
-        return new YggdrasilLoginService(HttpRequest.url(getProperties().getProperty("yggdrasilAuthUrl")));
+    public YggdrasilLoginService getYggdrasil() {
+        return new YggdrasilLoginService(HttpRequest.url(getProperties().getProperty("yggdrasilAuthUrl")), accounts.getClientId());
+    }
+
+    /**
+     * Get the Microsoft login service.
+     *
+     * @return the Microsoft (current) login service
+     */
+    public MicrosoftLoginService getMicrosoftLogin() {
+        return new MicrosoftLoginService(getProperties().getProperty("microsoftClientId"));
+    }
+
+    public LoginService getLoginService(UserType type) {
+        if (type == UserType.MICROSOFT) {
+            return getMicrosoftLogin();
+        } else {
+            return getYggdrasil();
+        }
     }
 
     /**
@@ -265,6 +288,15 @@ public final class Launcher {
      */
     public File getLibrariesDir() {
         return new File(getCommonDataDir(), "libraries");
+    }
+
+    /**
+     * Fetch a library file.
+     * @param library Library to fetch
+     * @return File pointing to the library on disk.
+     */
+    public File getLibraryFile(Library library) {
+        return new File(getLibrariesDir(), library.getPath(env));
     }
 
     /**
@@ -402,8 +434,11 @@ public final class Launcher {
     /**
      * Show the launcher.
      */
-    public void showLauncherWindow() {
-        mainWindowSupplier.get().setVisible(true);
+    public Window showLauncherWindow() {
+        Window window = mainWindowSupplier.get();
+        window.setVisible(true);
+
+        return window;
     }
 
     /**
@@ -416,16 +451,17 @@ public final class Launcher {
      */
     public static Launcher createFromArguments(String[] args) throws ParameterException, IOException {
         LauncherArguments options = new LauncherArguments();
-        new JCommander(options, args);
+        new JCommander(options).parse(args);
 
         Integer bsVersion = options.getBootstrapVersion();
         log.info(bsVersion != null ? "Bootstrap version " + bsVersion + " detected" : "Not bootstrapped");
 
         File dir = options.getDir();
         if (dir != null) {
+            dir = dir.getAbsoluteFile();
             log.info("Using given base directory " + dir.getAbsolutePath());
         } else {
-            dir = new File(".");
+            dir = new File("").getAbsoluteFile();
             log.info("Using current directory " + dir.getAbsolutePath());
         }
 
