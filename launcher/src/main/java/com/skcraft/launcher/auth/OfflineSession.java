@@ -9,6 +9,9 @@ package com.skcraft.launcher.auth;
 import lombok.Getter;
 import lombok.NonNull;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
@@ -34,7 +37,33 @@ public class OfflineSession implements Session {
 
     @Override
     public String getUuid() {
-        return (new UUID(0, 0)).toString();
+        return generateUuidFromUsername(name).toString();
+    }
+
+    /**
+     * Generate a UUID based on the username using MD5 hash.
+     * This ensures the same username always gets the same UUID.
+     */
+    private UUID generateUuidFromUsername(String username) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] hash = md.digest(username.getBytes(StandardCharsets.UTF_8));
+            
+            // Use the hash bytes to create a UUID
+            long msb = 0;
+            long lsb = 0;
+            for (int i = 0; i < 8; i++) {
+                msb = (msb << 8) | (hash[i] & 0xff);
+            }
+            for (int i = 8; i < 16; i++) {
+                lsb = (lsb << 8) | (hash[i] & 0xff);
+            }
+            
+            return new UUID(msb, lsb);
+        } catch (NoSuchAlgorithmException e) {
+            // Fallback to a deterministic UUID based on username hashcode
+            return new UUID(0, username.hashCode());
+        }
     }
 
     @Override
@@ -54,7 +83,7 @@ public class OfflineSession implements Session {
 
     @Override
     public UserType getUserType() {
-        return UserType.LEGACY;
+        return UserType.OFFLINE;
     }
 
     @Override
@@ -64,7 +93,7 @@ public class OfflineSession implements Session {
 
     @Override
     public boolean isOnline() {
-        return false;
+        return true; // Allow modpack updates even for offline accounts
     }
 
 }

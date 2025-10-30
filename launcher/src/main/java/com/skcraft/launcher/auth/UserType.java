@@ -11,13 +11,9 @@ package com.skcraft.launcher.auth;
  */
 public enum UserType {
     /**
-     * Legacy accounts login with an account username.
+     * Offline accounts with generated UUIDs.
      */
-    LEGACY("legacy"),
-    /**
-     * Mojang accounts login with an email address.
-     */
-    MOJANG("mojang"),
+    OFFLINE("offline"),
     /**
      * Microsoft accounts login via OAuth.
      */

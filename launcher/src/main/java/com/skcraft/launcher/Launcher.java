@@ -16,9 +16,6 @@ import com.skcraft.launcher.auth.*;
 import com.skcraft.launcher.launch.LaunchSupervisor;
 import com.skcraft.launcher.model.minecraft.Library;
 import com.skcraft.launcher.model.minecraft.VersionManifest;
-import com.skcraft.launcher.model.modpack.LauncherJSON;
-import com.skcraft.launcher.model.modpack.ModJSON;
-import com.skcraft.launcher.model.modpack.ModpackVersion;
 import com.skcraft.launcher.persistence.Persistence;
 import com.skcraft.launcher.swing.SwingHelper;
 import com.skcraft.launcher.update.UpdateManager;
@@ -158,12 +155,12 @@ public final class Launcher {
     }
 
     /**
-     * Get the Yggdrasil login service.
+     * Get the offline login service.
      *
-     * @return the Yggdrasil (legacy) login service
+     * @return the offline login service
      */
-    public YggdrasilLoginService getYggdrasil() {
-        return new YggdrasilLoginService(HttpRequest.url(getProperties().getProperty("yggdrasilAuthUrl")), accounts.getClientId());
+    public OfflineLoginService getOfflineLogin() {
+        return new OfflineLoginService();
     }
 
     /**
@@ -179,7 +176,7 @@ public final class Launcher {
         if (type == UserType.MICROSOFT) {
             return getMicrosoftLogin();
         } else {
-            return getYggdrasil();
+            return getOfflineLogin();
         }
     }
 
@@ -401,36 +398,6 @@ public final class Launcher {
         return HttpRequest.url(prop(key, args));
     }
 
-    public static URL getMetaURL(String version) throws IOException, InterruptedException {
-        URL url = new URL("https://launchermeta.mojang.com/mc/game/version_manifest.json");
-        LauncherJSON launcherJSON = HttpRequest
-                .get(url)
-                .execute()
-                .expectResponseCode(200)
-                .returnContent()
-                .asJson(LauncherJSON.class);
-        for(ModpackVersion mpVersion : launcherJSON.getVersions()) {
-            if(mpVersion.getID().equalsIgnoreCase(version)) {
-                return new URL(mpVersion.getURL());
-            }
-        }
-        return null;
-    }
-
-    public static String getDownloadURL(String version) throws IOException, InterruptedException {
-        URL url = getMetaURL(version);
-        if(url == null) {
-            return "";
-        }
-        ModJSON modJson = HttpRequest
-                .get(url)
-                .execute()
-                .expectResponseCode(200)
-                .returnContent()
-                .asJson(ModJSON.class);
-        return modJson.getDownloads().getClient().getUrl();
-    }
-    
     /**
      * Show the launcher.
      */

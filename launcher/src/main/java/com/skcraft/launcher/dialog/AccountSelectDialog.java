@@ -15,6 +15,8 @@ import com.skcraft.launcher.util.SharedLocale;
 import com.skcraft.launcher.util.SwingExecutor;
 import lombok.RequiredArgsConstructor;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.util.concurrent.Callable;
@@ -23,7 +25,7 @@ public class AccountSelectDialog extends JDialog {
 	private final JList<SavedSession> accountList;
 	private final JButton loginButton = new JButton(SharedLocale.tr("accounts.play"));
 	private final JButton cancelButton = new JButton(SharedLocale.tr("button.cancel"));
-	private final JButton addMojangButton = new JButton(SharedLocale.tr("accounts.addMojang"));
+	private final JButton addOfflineButton = new JButton(SharedLocale.tr("accounts.addOffline"));
 	private final JButton addMicrosoftButton = new JButton(SharedLocale.tr("accounts.addMicrosoft"));
 	private final JButton removeSelected = new JButton(SharedLocale.tr("accounts.removeSelected"));
 	private final JButton offlineButton = new JButton(SharedLocale.tr("login.playOffline"));
@@ -73,10 +75,10 @@ public class AccountSelectDialog extends JDialog {
 
 		//Login Buttons
 		JPanel loginButtonsRow = new JPanel(new BorderLayout(0, 5));
-		addMojangButton.setAlignmentX(CENTER_ALIGNMENT);
+		addOfflineButton.setAlignmentX(CENTER_ALIGNMENT);
 		addMicrosoftButton.setAlignmentX(CENTER_ALIGNMENT);
 		removeSelected.setAlignmentX(CENTER_ALIGNMENT);
-		loginButtonsRow.add(addMojangButton, BorderLayout.NORTH);
+		loginButtonsRow.add(addOfflineButton, BorderLayout.NORTH);
 		loginButtonsRow.add(addMicrosoftButton, BorderLayout.CENTER);
 		loginButtonsRow.add(removeSelected, BorderLayout.SOUTH);
 		loginButtonsRow.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0));
@@ -93,10 +95,11 @@ public class AccountSelectDialog extends JDialog {
 		loginButton.addActionListener(ev -> attemptExistingLogin(accountList.getSelectedValue()));
 		cancelButton.addActionListener(ev -> dispose());
 
-		addMojangButton.addActionListener(ev -> {
-			Session newSession = LoginDialog.showLoginRequest(this, launcher);
-
-			if (newSession != null) {
+		addOfflineButton.addActionListener(ev -> {
+			String username = OfflineUsernameDialog.showUsernameDialog(this);
+			
+			if (username != null) {
+				Session newSession = launcher.getOfflineLogin().login(username);
 				launcher.getAccounts().update(newSession.toSavedSession());
 				setResult(newSession);
 			}
@@ -174,12 +177,12 @@ public class AccountSelectDialog extends JDialog {
 		ObservableFuture<Session> future = new ObservableFuture<>(launcher.getExecutor().submit(callable), callable);
 		Futures.addCallback(future, new FutureCallback<Session>() {
 			@Override
-			public void onSuccess(Session result) {
+			public void onSuccess(@Nullable Session result) {
 				setResult(result);
 			}
 
 			@Override
-			public void onFailure(Throwable t) {
+			public void onFailure(@Nonnull Throwable t) {
 				if (t instanceof AuthenticationException && ((AuthenticationException) t).isInvalidatedSession()) {
 					// Just need to log in again
 					relogin(session, t.getLocalizedMessage());
@@ -199,13 +202,14 @@ public class AccountSelectDialog extends JDialog {
 	private void relogin(SavedSession session, String message) {
 		if (session.getType() == UserType.MICROSOFT) {
 			this.attemptMicrosoftLogin(message);
-		} else {
-			LoginDialog.ReloginDetails details = new LoginDialog.ReloginDetails(session.getUsername(),
-					SharedLocale.tr("login.relogin", message));
-			Session newSession = LoginDialog.showLoginRequest(AccountSelectDialog.this, launcher, details);
-
+		} else if (session.getType() == UserType.OFFLINE) {
+			// Offline sessions can always be "restored" without re-authentication
+			Session newSession = launcher.getOfflineLogin().login(session.getUsername());
 			launcher.getAccounts().update(newSession.toSavedSession());
 			setResult(newSession);
+		} else {
+			// Unknown session type - shouldn't happen with new enum
+			SwingHelper.showErrorDialog(this, "Unknown account type: " + session.getType(), "Error");
 		}
 	}
 
