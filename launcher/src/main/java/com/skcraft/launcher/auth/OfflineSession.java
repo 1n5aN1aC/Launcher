@@ -6,6 +6,7 @@
 
 package com.skcraft.launcher.auth;
 
+import com.skcraft.launcher.auth.skin.UsernameSkinService;
 import lombok.Getter;
 import lombok.NonNull;
 
@@ -68,7 +69,7 @@ public class OfflineSession implements Session {
 
     @Override
     public String getAccessToken() {
-        return "0";
+        return generateUuidFromUsername(name + "_access").toString();
     }
 
     @Override
@@ -78,7 +79,7 @@ public class OfflineSession implements Session {
 
     @Override
     public String getSessionToken() {
-        return "-";
+        return String.format("token:%s:%s", getAccessToken(), getUuid());
     }
 
     @Override
