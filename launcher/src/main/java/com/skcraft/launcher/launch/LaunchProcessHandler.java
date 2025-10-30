@@ -24,7 +24,7 @@ import java.util.logging.Level;
 @Log
 public class LaunchProcessHandler implements Function<Process, ProcessConsoleFrame> {
 
-    private static final int CONSOLE_NUM_LINES = 5000;
+    private static final int CONSOLE_NUM_LINES = 10000;
 
     private final Launcher launcher;
     private ProcessConsoleFrame consoleFrame;
@@ -41,7 +41,7 @@ public class LaunchProcessHandler implements Function<Process, ProcessConsoleFra
             SwingUtilities.invokeAndWait(new Runnable() {
                 @Override
                 public void run() {
-                    consoleFrame = new ProcessConsoleFrame(CONSOLE_NUM_LINES, false);
+                    consoleFrame = new ProcessConsoleFrame(CONSOLE_NUM_LINES, true);
                     consoleFrame.setProcess(process);
                     consoleFrame.setVisible(true);
                     MessageLog messageLog = consoleFrame.getMessageLog();
