@@ -6,7 +6,6 @@
 
 package com.skcraft.launcher.auth;
 
-import com.skcraft.launcher.auth.skin.UsernameSkinService;
 import lombok.Getter;
 import lombok.NonNull;
 
