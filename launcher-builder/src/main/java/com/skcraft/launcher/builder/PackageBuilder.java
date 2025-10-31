@@ -399,6 +399,12 @@ public class PackageBuilder {
      * @throws InterruptedException on interruption
      */
     public static void main(String[] args) throws IOException, InterruptedException {
+        // Check if this is a mirror command
+        if (args.length > 0 && args[0].equals("mirror")) {
+            AssetMirror.main(args);
+            return;
+        }
+        
         BuilderOptions options;
         try {
             options = parseArgs(args);

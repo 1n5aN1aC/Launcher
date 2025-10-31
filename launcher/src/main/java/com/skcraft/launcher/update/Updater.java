@@ -60,8 +60,40 @@ public class Updater extends BaseUpdater implements Callable<Instance>, Progress
         this.launcher = launcher;
         this.instance = instance;
 
-        librarySources.add(launcher.propUrl("librariesSource"));
-        assetsSources.add(launcher.propUrl("assetsSource"));
+        // Check if custom sources should be tried first
+        boolean customFirst = "true".equalsIgnoreCase(
+            launcher.getProperties().getProperty("customSourcesFirst", "false"));
+
+        String customLibrariesUrl = launcher.getProperties().getProperty("customLibrariesSource");
+        String customAssetsUrl = launcher.getProperties().getProperty("customAssetsSource");
+
+        if (customFirst) {
+            // Custom sources first, Microsoft as fallback
+            if (customLibrariesUrl != null && !customLibrariesUrl.trim().isEmpty()) {
+                librarySources.add(HttpRequest.url(customLibrariesUrl.trim()));
+                log.info("Added custom libraries source (primary): " + customLibrariesUrl);
+            }
+            librarySources.add(launcher.propUrl("librariesSource"));
+
+            if (customAssetsUrl != null && !customAssetsUrl.trim().isEmpty()) {
+                assetsSources.add(HttpRequest.url(customAssetsUrl.trim()));
+                log.info("Added custom assets source (primary): " + customAssetsUrl);
+            }
+            assetsSources.add(launcher.propUrl("assetsSource"));
+        } else {
+            // Microsoft first, custom sources as fallback (recommended)
+            librarySources.add(launcher.propUrl("librariesSource"));
+            if (customLibrariesUrl != null && !customLibrariesUrl.trim().isEmpty()) {
+                librarySources.add(HttpRequest.url(customLibrariesUrl.trim()));
+                log.info("Added custom libraries fallback source: " + customLibrariesUrl);
+            }
+
+            assetsSources.add(launcher.propUrl("assetsSource"));
+            if (customAssetsUrl != null && !customAssetsUrl.trim().isEmpty()) {
+                assetsSources.add(HttpRequest.url(customAssetsUrl.trim()));
+                log.info("Added custom assets fallback source: " + customAssetsUrl);
+            }
+        }
     }
 
     @Override
@@ -113,15 +145,42 @@ public class Updater extends BaseUpdater implements Callable<Instance>, Progress
      */
     private VersionManifest readVersionManifest(Manifest manifest) throws IOException, InterruptedException {
         VersionManifest version = manifest.getVersionManifest();
-        URL url = url(launcher.getProperties().getProperty("versionManifestUrl"));
+        
+        // Build version manifest URL list respecting customSourcesFirst setting
+        List<URL> versionManifestUrls = new ArrayList<URL>();
+        String customVersionManifestUrl = launcher.getProperties().getProperty("customVersionManifestUrl");
+        boolean customFirst = "true".equalsIgnoreCase(
+            launcher.getProperties().getProperty("customSourcesFirst", "false"));
+        
+        if (customFirst && customVersionManifestUrl != null && !customVersionManifestUrl.trim().isEmpty()) {
+            // Custom source first, Microsoft as fallback
+            try {
+                versionManifestUrls.add(url(customVersionManifestUrl.trim()));
+                log.info("Added custom version manifest source (primary): " + customVersionManifestUrl);
+            } catch (Exception e) {
+                log.log(Level.WARNING, "Failed to parse custom version manifest URL", e);
+            }
+            versionManifestUrls.add(url(launcher.getProperties().getProperty("versionManifestUrl")));
+        } else {
+            // Microsoft first, custom source as fallback
+            versionManifestUrls.add(url(launcher.getProperties().getProperty("versionManifestUrl")));
+            if (customVersionManifestUrl != null && !customVersionManifestUrl.trim().isEmpty()) {
+                try {
+                    versionManifestUrls.add(url(customVersionManifestUrl.trim()));
+                    log.info("Added custom version manifest fallback source: " + customVersionManifestUrl);
+                } catch (Exception e) {
+                    log.log(Level.WARNING, "Failed to parse custom version manifest URL", e);
+                }
+            }
+        }
 
         if (version == null) {
-            version = fetchVersionManifest(url, manifest);
+            version = fetchVersionManifest(versionManifestUrls, manifest, launcher);
         }
 
         if (version.getDownloads().isEmpty()) {
             // Backwards compatibility hack
-            VersionManifest otherManifest = fetchVersionManifest(url, manifest);
+            VersionManifest otherManifest = fetchVersionManifest(versionManifestUrls, manifest, launcher);
 
             version.setDownloads(otherManifest.getDownloads());
             version.setAssetIndex(otherManifest.getAssetIndex());
@@ -131,7 +190,7 @@ public class Updater extends BaseUpdater implements Callable<Instance>, Progress
         return version;
     }
 
-    private static VersionManifest fetchVersionManifest(URL url, Manifest manifest) throws IOException, InterruptedException {
+    private static VersionManifest fetchVersionManifest(URL url, Manifest manifest, Launcher launcher) throws IOException, InterruptedException {
         ReleaseList releases = HttpRequest.get(url)
                 .execute()
                 .expectResponseCode(200)
@@ -139,11 +198,103 @@ public class Updater extends BaseUpdater implements Callable<Instance>, Progress
                 .asJson(ReleaseList.class);
 
         Version relVersion = releases.find(manifest.getGameVersion());
-        return HttpRequest.get(url(relVersion.getUrl()))
-                .execute()
-                .expectResponseCode(200)
-                .returnContent()
-                .asJson(VersionManifest.class);
+        
+        // Build version JSON URLs respecting customSourcesFirst setting
+        List<URL> versionJsonUrls = new ArrayList<URL>();
+        String customVersionsUrl = launcher.getProperties().getProperty("customVersionsSource");
+        boolean customFirst = "true".equalsIgnoreCase(
+            launcher.getProperties().getProperty("customSourcesFirst", "false"));
+        
+        if (customFirst && customVersionsUrl != null && !customVersionsUrl.trim().isEmpty()) {
+            // Custom source first, Microsoft as fallback
+            try {
+                String versionJsonName = manifest.getGameVersion() + ".json";
+                URL customVersionJsonUrl = new URL(customVersionsUrl.trim() + versionJsonName);
+                versionJsonUrls.add(customVersionJsonUrl);
+                log.info("Added custom version JSON source (primary): " + customVersionJsonUrl);
+            } catch (Exception e) {
+                log.log(Level.WARNING, "Failed to construct custom version JSON URL", e);
+            }
+            versionJsonUrls.add(url(relVersion.getUrl()));
+        } else {
+            // Microsoft first, custom source as fallback
+            versionJsonUrls.add(url(relVersion.getUrl()));
+            if (customVersionsUrl != null && !customVersionsUrl.trim().isEmpty()) {
+                try {
+                    String versionJsonName = manifest.getGameVersion() + ".json";
+                    URL customVersionJsonUrl = new URL(customVersionsUrl.trim() + versionJsonName);
+                    versionJsonUrls.add(customVersionJsonUrl);
+                    log.info("Added custom version JSON fallback source: " + customVersionJsonUrl);
+                } catch (Exception e) {
+                    log.log(Level.WARNING, "Failed to construct custom version JSON URL", e);
+                }
+            }
+        }
+        
+        return fetchVersionManifest(versionJsonUrls, manifest, launcher);
+    }
+
+    private List<URL> buildAssetIndexUrls(VersionManifest version) {
+        List<URL> assetIndexUrls = new ArrayList<URL>();
+        
+        // Check if version has an asset index
+        if (version.getAssetIndex() == null) {
+            log.info("No asset index for version: " + version.getId());
+            return assetIndexUrls; // Return empty list for legacy versions
+        }
+        
+        String customAssetIndexesUrl = launcher.getProperties().getProperty("customAssetIndexesSource");
+        boolean customFirst = "true".equalsIgnoreCase(
+            launcher.getProperties().getProperty("customSourcesFirst", "false"));
+        
+        if (customFirst && customAssetIndexesUrl != null && !customAssetIndexesUrl.trim().isEmpty()) {
+            // Custom source first, Microsoft as fallback
+            try {
+                String assetIndexName = version.getAssetId() + ".json";
+                URL customAssetIndexUrl = new URL(customAssetIndexesUrl.trim() + assetIndexName);
+                assetIndexUrls.add(customAssetIndexUrl);
+                log.info("Added custom asset index source (primary): " + customAssetIndexUrl);
+            } catch (Exception e) {
+                log.log(Level.WARNING, "Failed to construct custom asset index URL", e);
+            }
+            assetIndexUrls.add(url(version.getAssetIndex().getUrl()));
+        } else {
+            // Microsoft first, custom source as fallback
+            assetIndexUrls.add(url(version.getAssetIndex().getUrl()));
+            if (customAssetIndexesUrl != null && !customAssetIndexesUrl.trim().isEmpty()) {
+                try {
+                    String assetIndexName = version.getAssetId() + ".json";
+                    URL customAssetIndexUrl = new URL(customAssetIndexesUrl.trim() + assetIndexName);
+                    assetIndexUrls.add(customAssetIndexUrl);
+                    log.info("Added custom asset index fallback source: " + customAssetIndexUrl);
+                } catch (Exception e) {
+                    log.log(Level.WARNING, "Failed to construct custom asset index URL", e);
+                }
+            }
+        }
+        
+        return assetIndexUrls;
+    }
+
+    private static VersionManifest fetchVersionManifest(List<URL> urls, Manifest manifest, Launcher launcher) throws IOException, InterruptedException {
+        IOException lastException = null;
+        
+        for (URL url : urls) {
+            try {
+                log.info("Trying version manifest URL: " + url);
+                return fetchVersionManifest(url, manifest, launcher);
+            } catch (IOException e) {
+                lastException = e;
+                log.log(Level.WARNING, "Failed to fetch version manifest from " + url + ", trying next source", e);
+            }
+        }
+        
+        // If all sources failed, throw the last exception
+        if (lastException != null) {
+            throw lastException;
+        } else {
+            throw new IOException("No version manifest URLs provided");
+        }
     }
 
     /**
@@ -177,9 +328,42 @@ public class Updater extends BaseUpdater implements Callable<Instance>, Progress
         // Install the .jar
         File jarPath = launcher.getJarPath(version);
         VersionManifest.Artifact clientJar = version.getDownloads().get("client");
-        URL jarSource = url(clientJar.getUrl());
-        log.info("JAR at " + jarPath.getAbsolutePath() + ", fetched from " + jarSource);
-        installJar(installer, clientJar, jarPath, jarSource);
+        URL originalJarSource = url(clientJar.getUrl());
+        
+        // Build JAR source list respecting customSourcesFirst setting
+        List<URL> jarSources = new ArrayList<URL>();
+        String customVersionsUrl = launcher.getProperties().getProperty("customVersionsSource");
+        boolean customFirst = "true".equalsIgnoreCase(
+            launcher.getProperties().getProperty("customSourcesFirst", "false"));
+        
+        if (customFirst && customVersionsUrl != null && !customVersionsUrl.trim().isEmpty()) {
+            // Custom source first, Microsoft as fallback
+            try {
+                String jarFileName = version.getId() + "-client.jar";
+                URL customJarUrl = new URL(customVersionsUrl.trim() + jarFileName);
+                jarSources.add(customJarUrl);
+                log.info("Added custom JAR source (primary): " + customJarUrl);
+            } catch (Exception e) {
+                log.log(Level.WARNING, "Failed to construct custom JAR URL", e);
+            }
+            jarSources.add(originalJarSource);
+        } else {
+            // Microsoft first, custom source as fallback
+            jarSources.add(originalJarSource);
+            if (customVersionsUrl != null && !customVersionsUrl.trim().isEmpty()) {
+                try {
+                    String jarFileName = version.getId() + "-client.jar";
+                    URL customJarUrl = new URL(customVersionsUrl.trim() + jarFileName);
+                    jarSources.add(customJarUrl);
+                    log.info("Added custom JAR fallback source: " + customJarUrl);
+                } catch (Exception e) {
+                    log.log(Level.WARNING, "Failed to construct custom JAR URL", e);
+                }
+            }
+        }
+        
+        log.info("JAR at " + jarPath.getAbsolutePath() + ", sources: " + jarSources);
+        installJar(installer, clientJar, jarPath, jarSources.get(0), jarSources.size() > 1 ? jarSources.subList(1, jarSources.size()) : null);
 
         // Download libraries
         log.info("Enumerating libraries to download...");
@@ -196,7 +380,10 @@ public class Updater extends BaseUpdater implements Callable<Instance>, Progress
         // Download assets
         log.info("Enumerating assets to download...");
         progress = new DefaultProgress(-1, SharedLocale.tr("instanceUpdater.collectingAssets"));
-        installAssets(installer, version, url(version.getAssetIndex().getUrl()), assetsSources);
+        
+        // Build asset index URLs with custom source fallback
+        List<URL> assetIndexUrls = buildAssetIndexUrls(version);
+        installAssets(installer, version, assetIndexUrls, assetsSources);
 
         log.info("Executing download phase...");
         progress = ProgressFilter.between(installer.getDownloader(), 0, 0.98);

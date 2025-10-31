@@ -180,12 +180,37 @@ public abstract class BaseUpdater {
                               @NonNull VersionManifest.Artifact artifact,
                               @NonNull File jarFile,
                               @NonNull URL url) throws InterruptedException {
+        installJar(installer, artifact, jarFile, url, null);
+    }
+
+    protected void installJar(@NonNull Installer installer,
+                              @NonNull VersionManifest.Artifact artifact,
+                              @NonNull File jarFile,
+                              @NonNull URL url,
+                              List<URL> fallbackSources) throws InterruptedException {
         // If the JAR does not exist, install it
         if (!jarFile.exists()) {
             long size = artifact.getSize();
             if (size <= 0) size = JAR_SIZE_ESTIMATE;
 
-            File tempFile = installer.getDownloader().download(url, "", size, jarFile.getName());
+            List<URL> sources = new ArrayList<URL>();
+            sources.add(url); // Primary source (official)
+            
+            // Add fallback sources if provided
+            if (fallbackSources != null) {
+                for (URL fallbackUrl : fallbackSources) {
+                    try {
+                        // Try to construct the JAR URL from fallback source
+                        // This assumes the fallback source follows a similar structure
+                        String jarPath = url.getPath().substring(url.getPath().lastIndexOf('/') + 1);
+                        sources.add(new URL(fallbackUrl, jarPath));
+                    } catch (Exception e) {
+                        log.log(Level.WARNING, "Failed to construct fallback JAR URL from " + fallbackUrl, e);
+                    }
+                }
+            }
+
+            File tempFile = installer.getDownloader().download(sources, "", size, jarFile.getName());
             installer.queue(new FileMover(tempFile, jarFile));
             if (artifact.getHash() != null) {
                 installer.queue(new FileVerify(jarFile, jarFile.getName(), artifact.getHash()));
@@ -196,17 +221,45 @@ public abstract class BaseUpdater {
 
     protected void installAssets(@NonNull Installer installer,
                                  @NonNull VersionManifest versionManifest,
-                                 @NonNull URL indexUrl,
+                                 @NonNull List<URL> indexUrls,
                                  @NonNull List<URL> sources) throws IOException, InterruptedException {
         AssetsRoot assetsRoot = launcher.getAssets();
 
-        AssetsIndex index = HttpRequest
-                .get(indexUrl)
-                .execute()
-                .expectResponseCode(200)
-                .returnContent()
-                .saveContent(assetsRoot.getIndexPath(versionManifest))
-                .asJson(AssetsIndex.class);
+        // Handle legacy versions that don't have asset indexes
+        if (indexUrls.isEmpty()) {
+            log.info("No asset index URLs provided - skipping asset installation (legacy version)");
+            return;
+        }
+
+        // Try each asset index URL until one works
+        AssetsIndex index = null;
+        IOException lastException = null;
+        
+        for (URL indexUrl : indexUrls) {
+            try {
+                log.info("Trying asset index URL: " + indexUrl);
+                index = HttpRequest
+                        .get(indexUrl)
+                        .execute()
+                        .expectResponseCode(200)
+                        .returnContent()
+                        .saveContent(assetsRoot.getIndexPath(versionManifest))
+                        .asJson(AssetsIndex.class);
+                break; // Success!
+            } catch (IOException e) {
+                lastException = e;
+                log.log(Level.WARNING, "Failed to download asset index from " + indexUrl + ", trying next source", e);
+            }
+        }
+        
+        // If all asset index URLs failed, throw the last exception
+        if (index == null) {
+            if (lastException != null) {
+                throw lastException;
+            } else {
+                throw new IOException("All asset index URLs failed");
+            }
+        }
 
         // Keep track of duplicates
         Set<String> downloading = new HashSet<String>();
