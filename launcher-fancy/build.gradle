@@ -8,16 +8,10 @@ application {
     mainClassName = "com.skcraft.launcher.FancyLauncher"
 }
 
-repositories {
-    maven {
-        name = 'bbkr.space maven'
-        url = 'https://server.bbkr.space/artifactory/libs-snapshot'
-    }
-}
 
 dependencies {
     implementation project(path: ':launcher')
-    implementation 'io.github.cottonmc.insubstantial:substance:7.3.1-SNAPSHOT'
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
 }
 
 shadowJar {
