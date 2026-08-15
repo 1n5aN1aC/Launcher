@@ -6,11 +6,19 @@
 
 package com.skcraft.launcher.skin;
 
-import org.pushingpixels.substance.api.SubstanceLookAndFeel;
+import com.formdev.flatlaf.FlatDarkLaf;
 
-public class LauncherLookAndFeel extends SubstanceLookAndFeel {
+/**
+ * A dark FlatLaf theme, tuned to approximate the old Graphite Substance skin.
+ * UI default overrides live in the sibling {@code LauncherLookAndFeel.properties}
+ * file, which FlatLaf loads automatically based on this class's name.
+ */
+public class LauncherLookAndFeel extends FlatDarkLaf {
 
-    public LauncherLookAndFeel() {
-        super(new LauncherSkin());
+    public static final String NAME = "LauncherLookAndFeel";
+
+    @Override
+    public String getName() {
+        return NAME;
     }
 }

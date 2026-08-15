@@ -11,7 +11,7 @@ application {
 
 dependencies {
     implementation project(path: ':launcher')
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation 'com.formdev:flatlaf:3.5.4'
 }
 
 shadowJar {
