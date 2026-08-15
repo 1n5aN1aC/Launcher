@@ -2,6 +2,7 @@ plugins {
     id 'application'
     id "com.github.johnrengelman.shadow"
     id 'io.freefair.lombok'
+    id 'edu.sc.seis.launch4j' version '3.0.6'
 }
 
 application {
@@ -28,3 +29,21 @@ shadowJar {
 build {
     dependsOn(shadowJar)
 }
+
+// Wraps the shadow jar into a single-file exe. The jar is embedded directly
+// in the exe (dontWrapJar defaults to false), so there's no lib/ folder to
+// ship alongside it. Launch4j searches the player's PATH, registry, and
+// common install locations for a matching JRE at runtime - this doesn't fix
+// players with no Java installed at all, only makes the search more
+// reliable than PATH alone already was.
+launch4j {
+    mainClassName = 'com.skcraft.launcher.Bootstrap'
+    outfile = 'SKCraft-Launcher.exe'
+    icon = "${projectDir}/icons/icon.ico"
+    jarTask = shadowJar
+    copyConfigurable = files()
+    jreMinVersion = '17'
+    requires64Bit = true
+}
+
+createExe.dependsOn(shadowJar)
