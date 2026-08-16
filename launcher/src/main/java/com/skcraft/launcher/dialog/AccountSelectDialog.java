@@ -62,7 +62,11 @@ public class AccountSelectDialog extends JDialog {
 		accountPane.setAlignmentX(CENTER_ALIGNMENT);
 
 		loginButton.setFont(loginButton.getFont().deriveFont(Font.BOLD));
-		loginButton.setMargin(new Insets(0, 10, 0, 10));
+		// The FlatLaf-based fancy skin sizes buttons via its own UI defaults;
+		// only apply this fixed margin for other look-and-feels.
+		if (!"LauncherLookAndFeel".equals(UIManager.getLookAndFeel().getName())) {
+			loginButton.setMargin(new Insets(0, 10, 0, 10));
+		}
 
 		//Start Buttons
 		buttonsPanel.setBorder(BorderFactory.createEmptyBorder(26, 13, 13, 13));
