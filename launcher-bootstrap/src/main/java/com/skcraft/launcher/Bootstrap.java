@@ -201,7 +201,7 @@ public class Bootstrap {
 
         if (osName.contains("linux") && !dotFolder.exists() && xdgFolderName != null && !xdgFolderName.isEmpty()) {
             String xdgDataHome = System.getenv("XDG_DATA_HOME");
-            if (xdgDataHome.isEmpty()) {
+            if (xdgDataHome == null || xdgDataHome.isEmpty()) {
                 xdgDataHome = System.getProperty("user.home") + "/.local/share";
             }
 
